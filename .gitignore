@@ -4,3 +4,5 @@ forex_data
 *.log
 *.json
 /logs
+*.html
+*.csv
