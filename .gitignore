@@ -1,0 +1,6 @@
+.idea/
+/.idea/
+forex_data
+*.log
+*.json
+/logs
