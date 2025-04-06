@@ -18,7 +18,7 @@ from silver_bullet_bot.core.utils import (
     calculate_fibonacci_levels
 )
 from silver_bullet_bot.core.timezone_utils import (
-    convert_mt5_to_ny, is_silver_bullet_window, is_ny_trading_time
+    convert_mt5_to_ny, is_silver_bullet_window, is_ny_trading_time, convert_utc_timestamp_to_ny
 )
 from silver_bullet_bot.config import INSTRUMENTS, MAX_RISK_PERCENT
 
@@ -143,7 +143,14 @@ class BacktestEngine:
 
         # Ensure time index is timezone-aware (important for session time checks)
         if m1_data['time'].dt.tz is None:
-            m1_data['time'] = m1_data['time'].dt.tz_localize('UTC')
+            # First localize to UTC
+            utc_times = m1_data['time'].dt.tz_localize('UTC')
+            # Then convert to NY time
+            m1_data['time'] = utc_times.apply(lambda x: convert_utc_timestamp_to_ny(x))
+            self.logger.info(f"Converted {len(m1_data)} timestamps from UTC to NY timezone")
+        else:
+            # Already has timezone, ensure it's NY
+            m1_data['time'] = m1_data['time'].apply(lambda x: x.astimezone(pytz.timezone('America/New_York')))
 
         # Prepare a date-based dictionary to track trading days
         unique_dates = m1_data['time'].dt.date.unique()
@@ -160,6 +167,9 @@ class BacktestEngine:
         total_bars = len(m1_data)
         self.logger.info(f"Processing {total_bars} bars of 1-minute data")
 
+        # ADD THIS - Track whether we've already processed this bar
+        last_processed_time = None
+
         # Process each M1 bar
         for i in tqdm(range(len(m1_data)), desc=f"Backtesting {instrument_name}"):
             # Current bar row
@@ -167,8 +177,21 @@ class BacktestEngine:
             current_time = row['time']
             current_date = current_time.date()
 
+            # ADD THIS - Skip if we already processed a bar with this exact timestamp
+            if last_processed_time is not None and current_time == last_processed_time:
+                self.logger.warning(f"Skipping duplicate bar at {current_time}")
+                continue
+
+            last_processed_time = current_time
+
+
+
             # Convert to NY time (for session checks)
-            current_time_ny = current_time.tz_convert('America/New_York')
+            # Ensure it's in NY timezone
+            if hasattr(current_time, 'tzinfo') and current_time.tzinfo is not None:
+                current_time_ny = current_time.astimezone(pytz.timezone('America/New_York'))
+            else:
+                current_time_ny = convert_utc_timestamp_to_ny(current_time)
             # self.logger.info(
             #     f"current_time_ny: {current_time_ny}, Open: {row['open']:.5f}, High: {row['high']:.5f}, Low: {row['low']:.5f}, Close: {row['close']:.5f}")
 
@@ -205,6 +228,12 @@ class BacktestEngine:
 
             # Update equity curve
             state['equity_curve'].append(state['equity'])
+
+            # Close any open positions at the end of the simulation
+        if state['current_position']:
+            last_row = m1_data.iloc[-1]
+            self.logger.info(f"End of simulation - Closing open position at {last_row['close']:.5f}")
+            self._close_position(last_row, state, last_row['close'], 'end_of_simulation')
 
         # Calculate performance metrics
         self._calculate_performance_metrics(state)
@@ -247,14 +276,20 @@ class BacktestEngine:
         if state['current_position']:
             self._manage_position(row, current_time_ny, state)
 
+            # Add this code to force close at 15:45 NY time
+            # Check for end-of-day closure at 15:45 NY time
+            if current_time_ny.hour == 15 and current_time_ny.minute == 45:
+                self.logger.info(f"End of day (15:45 NY) - Closing any open positions")
+                self._close_position(row, state, row['close'], 'end_of_day')
+
         # Check for trading window
         in_trading_window = self._is_in_trading_window(current_time_ny, config)
         if not in_trading_window:
             return
 
         # Skip if already have a position or already traded today
-        if state['current_position'] or self._has_traded_today(current_time_ny.date(), state):
-            return
+        # if state['current_position'] or self._has_traded_today(current_time_ny.date(), state):
+        #     return
 
         # Step 1: Determine HTF bias if not already done
         if state['htf_bias'] is None:
@@ -353,11 +388,15 @@ class BacktestEngine:
             if direction == 'buy' and row['low'] <= entry_price <= row['high']:
                 # Entry triggered
                 self._execute_entry(row, state, entry_price, direction)
+                # ADD THIS LINE - Reset entry_pending to prevent multiple entries
+                state['potential_setup']['entry_pending'] = False
 
             # For sell entry, check if price rose to entry level
             elif direction == 'sell' and row['low'] <= entry_price <= row['high']:
                 # Entry triggered
                 self._execute_entry(row, state, entry_price, direction)
+                # ADD THIS LINE - Reset entry_pending to prevent multiple entries
+                state['potential_setup']['entry_pending'] = False
 
     def _get_past_bars(self, timeframe, current_index, count, data):
         """Get past bars from data for a specific timeframe"""
@@ -468,6 +507,8 @@ class BacktestEngine:
             return len(state['trades_by_day'][date_str]) >= max_trades
         return False
 
+    # In backtest_engine.py - around line 600-650 in the _execute_entry method
+
     def _execute_entry(self, row, state, entry_price, direction):
         """Execute a trade entry"""
         # Calculate lot size
@@ -485,16 +526,42 @@ class BacktestEngine:
         # Calculate value of stop distance per standard lot
         stop_value_per_lot = stop_distance * point_value
 
+        # Add detailed logging to diagnose the issue
+        self.logger.info(f"Position sizing - Balance: ${state['balance']:.2f}, Risk %: {MAX_RISK_PERCENT}")
+        self.logger.info(f"Risk amount: ${risk_amount:.2f} (maximum loss per trade)")
+        self.logger.info(f"Entry price: {entry_price:.5f}, Stop price: {stop_price:.5f}")
+        self.logger.info(f"Stop distance: {stop_distance:.5f}, Point value: {point_value}")
+        self.logger.info(f"Stop value per lot: {stop_value_per_lot:.2f}")
+
         # Calculate required lot size
-        lot_size = risk_amount / stop_value_per_lot if stop_value_per_lot > 0 else state['config'].get(
-            'default_lot_size', 0.1)
+        if stop_value_per_lot <= 0:
+            self.logger.warning("Stop value per lot is zero or negative, using default lot size")
+            lot_size = state['config'].get('default_lot_size', 0.1)
+        else:
+            lot_size = risk_amount / stop_value_per_lot
 
         # Ensure lot size doesn't exceed maximum
         max_lot_size = min(
             state['config'].get('max_lot_size', 1.0),
             state['config'].get('max_broker_lot_size', float('inf'))
         )
+
+        original_lot_size = lot_size
         lot_size = min(lot_size, max_lot_size)
+
+        # Check if we're hitting the max lot size cap
+        if lot_size < original_lot_size:
+            self.logger.warning(f"Lot size capped by maximum: {lot_size} (calculated: {original_lot_size:.2f})")
+
+        # Ensure lot size meets minimum (if applicable)
+        min_lot_size = state['config'].get('min_lot_size', 0.01)
+        if lot_size < min_lot_size:
+            self.logger.warning(f"Lot size increased to minimum: {min_lot_size} (calculated: {lot_size:.2f})")
+            lot_size = min_lot_size
+
+        self.logger.info(f"Final lot size: {lot_size:.2f}")
+
+        # Rest of the method remains the same...
 
         # Calculate take profit (if using fixed RR)
         risk_reward_ratio = 2.0  # Default 1:2 risk-reward

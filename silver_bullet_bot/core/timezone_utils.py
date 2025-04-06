@@ -302,3 +302,41 @@ def format_time_for_display(dt):
     ny_time = dt.astimezone(pytz.timezone('America/New_York'))
 
     return f"{dt.strftime('%Y-%m-%d %H:%M:%S')} | NY: {ny_time.strftime('%H:%M:%S')} | UTC: {utc_time.strftime('%H:%M:%S')}"
+
+
+def convert_utc_timestamp_to_ny(utc_timestamp):
+    """
+    Convert a UTC timestamp to NY time for backtesting purposes
+
+    Parameters:
+    -----------
+    utc_timestamp : int or datetime
+        UTC timestamp (either as epoch seconds or datetime object)
+
+    Returns:
+    --------
+    datetime
+        Datetime in NY timezone
+    """
+    import pytz
+    from datetime import datetime
+
+    # Handle both int timestamps and datetime objects
+    if isinstance(utc_timestamp, (int, float)):
+        # Convert epoch timestamp to datetime
+        utc_dt = datetime.fromtimestamp(utc_timestamp, pytz.UTC)
+    elif isinstance(utc_timestamp, datetime):
+        # If it's already a datetime, ensure it's UTC-aware
+        if utc_timestamp.tzinfo is None:
+            utc_dt = pytz.UTC.localize(utc_timestamp)
+        else:
+            # Convert to UTC if it's in a different timezone
+            utc_dt = utc_timestamp.astimezone(pytz.UTC)
+    else:
+        raise TypeError("timestamp must be int, float, or datetime")
+
+    # Convert to NY time (handles DST automatically)
+    ny_timezone = pytz.timezone('America/New_York')
+    ny_dt = utc_dt.astimezone(ny_timezone)
+
+    return ny_dt

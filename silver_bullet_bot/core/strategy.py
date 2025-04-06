@@ -99,7 +99,7 @@ class SilverBulletStrategy:
         self.position_id = None
         self.entry_time = None
         self.lot_size = None
-        self.trade_executed_today = False
+        self.trades_executed_today = 0  # Change from boolean to counter
         self.liquidity_sweep_data = None
         self.fvg_data = None
         self.breaker_data = None
@@ -681,7 +681,7 @@ class SilverBulletStrategy:
             self.position_id = result.order
             self.entry_time = datetime.now()
             self.lot_size = lot_size
-            self.trade_executed_today = True
+            self.trades_executed_today += 1  # Increment counter instead of setting flag
 
             # Log trade details
             self._log_trade("OPEN", {
@@ -887,6 +887,17 @@ class SilverBulletStrategy:
 
             # Reset trade state
             self.trade_open = False
+            # Reset potential setup to allow new trades
+            self.potential_setup = {
+                'htf_bias': self.htf_bias,  # Keep the same bias
+                'liquidity_sweep': None,
+                'displacement': None,
+                'fvg': None,
+                'breaker': None,
+                'entry_pending': False,
+                'entry_price': None,
+                'stop_price': None
+            }
 
             # Log trade details
             self._log_trade("CLOSE", {
@@ -990,6 +1001,22 @@ class SilverBulletStrategy:
         # Convert to NY time for logging
         current_time_ny = convert_mt5_to_ny(current_time_mt5)
 
+        max_trades = self.config.get('max_trades_per_day', 1)
+        if self.trades_executed_today >= max_trades:
+            # Every 10 seconds log the trade status
+            if current_time_ny.second % 10 == 0:
+                self.logger.info(
+                    f"[{current_time_ny.strftime('%H:%M:%S')} NY] {self.instrument_name}: Maximum trades for today reached ({self.trades_executed_today}/{max_trades}), monitoring only")
+
+            # But still manage open trade
+            if self.trade_open:
+                self.manage_open_trade()
+
+                # Check for time-based exit
+                if self.check_exit_conditions(current_time_mt5):
+                    self.close_trade()
+            return
+
         # Heartbeat log (every 10 seconds)
         if current_time_ny.second % 10 == 0:
             tick = mt5.symbol_info_tick(self.symbol)
@@ -1027,11 +1054,11 @@ class SilverBulletStrategy:
             return
 
         # Skip if already traded today
-        if self.trade_executed_today:
+        if self.trades_executed_today >= self.config.get('max_trades_per_day', 1):
             # Every 10 seconds log the trade status
-            if current_time_ny.second % 10 == 0:
-                self.logger.info(
-                    f"[{current_time_ny.strftime('%H:%M:%S')} NY] {self.instrument_name}: Already executed trade today, monitoring only")
+            # if current_time_ny.second % 10 == 0:
+            #     self.logger.info(
+            #         f"[{current_time_ny.strftime('%H:%M:%S')} NY] {self.instrument_name}: Maximum trades for today reached ({self.trades_executed_today}/{self.config.get('max_trades_per_day', 1)}), monitoring only")
 
             # But still manage open trade
             if self.trade_open:

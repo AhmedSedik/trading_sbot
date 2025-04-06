@@ -1,8 +1,10 @@
 .idea/
 /.idea/
 forex_data
+backtest_results
 *.log
 *.json
 /logs
 *.html
 *.csv
+*.png

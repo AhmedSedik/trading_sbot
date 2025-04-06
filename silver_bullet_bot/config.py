@@ -22,7 +22,7 @@ TIMEFRAMES = {
 
 # Common Trading Parameters
 RISK_REWARD_RATIO = 2.0  # 1:2 risk-to-reward ratio
-MAX_RISK_PERCENT = 1.0  # Maximum risk per trade (percentage of account)
+MAX_RISK_PERCENT = 7.0  # Maximum risk per trade (percentage of account)
 
 # Drawdown Management
 MAX_DRAWDOWN_PERCENT = 5.0  # Maximum allowed drawdown (percentage of account)
@@ -56,15 +56,15 @@ INSTRUMENTS = {
     },
     "NAS100": {
         "symbol": "NAS100",
-        "window_start": time(9, 45),  # 10:00 AM NY
-        "window_end": time(10, 10),  # 11:00 AM NY
+        "window_start": time(10, 00),  # 10:00 AM NY
+        "window_end": time(11, 00),  # 11:00 AM NY
         "min_stop_distance": 10,  # in points
         "buffer_points": 5,  # buffer for SL
-        "default_lot_size": 15.0,  # Default lot size
-        "max_lot_size": 21.0,  # Maximum lot size
-        "max_broker_lot_size": 60.0,
+        "default_lot_size": 50.0,  # Default lot size
+        "max_lot_size": 1000.0,  # Maximum lot size
+        "max_broker_lot_size": 1000.0,
         "fvg_min_size": 10,  # Minimum FVG size in points
-        "point_value": 0.01,  # Value of 1 point
+        "point_value": 5.0,  # Value of 1 point
         "description": "NASDAQ 100 Index",
         "trades_on_weekend": False,  # Doesn't trade on weekends
         "max_trades_per_day": 10,  # Instrument-specific setting
@@ -73,7 +73,7 @@ INSTRUMENTS = {
     },
     "NQ100": {
         "symbol": "[NQ100]",
-        "window_start": time(9, 45),  # 10:00 AM NY
+        "window_start": time(10, 00),  # 10:00 AM NY
         "window_end": time(11, 00),  # 11:00 AM NY
         "min_stop_distance": 10,  # in points
         "buffer_points": 5,  # buffer for SL
