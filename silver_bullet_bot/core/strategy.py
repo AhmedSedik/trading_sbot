@@ -618,12 +618,17 @@ class SilverBulletStrategy:
         else:
             entry_price = tick.bid
 
-        # Calculate lot size
+        # Get current open positions for this instrument
+        positions = mt5.positions_get(symbol=self.symbol)
+        open_positions_lot_sum = sum(position.volume for position in positions) if positions else 0
+
+        # Calculate lot size with open positions consideration
         lot_size = calculate_lot_size(
             account_info.balance,
             stop_price,
             entry_price,
-            self.config
+            self.config,
+            open_positions_lot_sum
         )
 
         # Round lot size to broker's acceptable value
@@ -1277,9 +1282,10 @@ class SilverBulletStrategy:
         # Update current equity
         self.drawdown_state['current_equity'] = current_equity
 
-        # Calculate drawdown
-        total_drawdown_pct = (1 - current_equity / self.drawdown_state['starting_equity']) * 100
-        daily_drawdown_pct = (1 - current_equity / self.drawdown_state['daily_starting_equity']) * 100
+        # When calculating total drawdown - use balance instead of equity
+        total_drawdown_pct = (1 - account_info.balance / self.drawdown_state['starting_equity']) * 100
+        # Use balance instead of equity to only account for closed trades
+        daily_drawdown_pct = (1 - account_info.balance / self.drawdown_state['daily_starting_equity']) * 100
 
         # Update max drawdown if needed
         if total_drawdown_pct > self.drawdown_state['max_drawdown']:

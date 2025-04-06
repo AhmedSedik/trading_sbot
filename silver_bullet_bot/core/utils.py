@@ -405,7 +405,7 @@ def find_breaker_or_ob(df, direction, displacement_index):
     return None
 
 
-def calculate_lot_size(account_balance, stop_price, entry_price, instrument_config):
+def calculate_lot_size(account_balance, stop_price, entry_price, instrument_config, open_positions_lot_sum=0):
     """
     Calculate appropriate lot size based on risk parameters
 
@@ -428,15 +428,10 @@ def calculate_lot_size(account_balance, stop_price, entry_price, instrument_conf
     logger = logging.getLogger('silver_bullet')
 
     # Calculate risk amount in account currency
+    # Original lot size calculation
     risk_amount = account_balance * (MAX_RISK_PERCENT / 100)
-
-    # Calculate stop distance in points
     stop_distance = abs(entry_price - stop_price)
-
-    # Get point value for the instrument
     point_value = instrument_config.get('point_value', 0.01)
-
-    # Calculate value of stop distance per standard lot
     stop_value_per_lot = stop_distance * point_value
 
     # Log detailed risk calculations
@@ -446,27 +441,31 @@ def calculate_lot_size(account_balance, stop_price, entry_price, instrument_conf
     logger.info(f"Stop distance: {stop_distance:.5f}, Point value: {point_value}")
     logger.info(f"Stop value per lot: {stop_value_per_lot:.2f}")
 
-    # Calculate required lot size to risk the specified amount
-    if stop_value_per_lot == 0:
-        logger.warning("Stop value per lot is zero, using default lot size")
+    # Calculate base lot size
+    if stop_value_per_lot <= 0:
         lot_size = instrument_config.get('default_lot_size', 0.1)
     else:
         lot_size = risk_amount / stop_value_per_lot
 
-    # Ensure lot size doesn't exceed maximum
+    # Get max settings
     max_lot_size = min(
         instrument_config.get('max_lot_size', 1.0),
         instrument_config.get('max_broker_lot_size', float('inf'))
     )
+    max_concurrent_lots = instrument_config.get('max_concurrent_lots', max_lot_size)
 
-    lot_size = min(lot_size, max_lot_size)
+    # Calculate available lot size considering open positions
+    available_lot_size = max_concurrent_lots - open_positions_lot_sum
 
-    # Ensure lot size meets minimum (if applicable)
+    # Adjust lot size to respect maximum concurrent exposure
+    lot_size = min(lot_size, available_lot_size, max_lot_size)
+
+    # Ensure minimum lot size
     min_lot_size = instrument_config.get('min_lot_size', 0.01)
     lot_size = max(lot_size, min_lot_size)
 
-    logger.info(f"Calculated lot size: {lot_size:.2f} (risk: {risk_amount:.2f}, "
-                f"stop distance: {stop_distance:.5f}, value per lot: {stop_value_per_lot:.2f})")
+    logger.info(
+        f"Adjusted lot size: {lot_size:.2f} (after considering {open_positions_lot_sum} lots in open positions)")
 
     return lot_size
 
