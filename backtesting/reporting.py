@@ -20,6 +20,9 @@ class CustomJSONEncoder(json.JSONEncoder):
             return obj.isoformat()
         elif isinstance(obj, pd.Timedelta):
             return str(obj)
+        # Add this line to handle Period objects
+        elif isinstance(obj, pd.Period):
+            return str(obj)
         elif hasattr(obj, 'to_dict'):  # Handle pandas objects
             return None  # Skip pandas objects that can't be serialized
         elif np.issubdtype(type(obj), np.integer):

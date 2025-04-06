@@ -30,14 +30,13 @@ MAX_DAILY_DRAWDOWN_PERCENT = 5.0  # Maximum allowed daily drawdown (percentage o
 MAX_DRAWDOWN_AMOUNT = 10000.0  # Maximum allowed drawdown in currency units
 CLOSE_POSITIONS_ON_MAX_DRAWDOWN = True  # Whether to close all positions when max drawdown is reached
 
-
 # NY Trading Session Times
 NY_SESSION_START = time(9, 30)  # 9:30 AM EDT
-NY_SESSION_END = time(16, 0)  # 4:00 PM EDT
+NY_SESSION_END = time(4, 0)  # 4:00 PM EDT
 
 # Default Silver Bullet Window
 SILVER_BULLET_WINDOW_START = time(10, 0)  # 10:00 AM ET
-SILVER_BULLET_WINDOW_END = time(11, 0)  # 11:00 AM ET
+SILVER_BULLET_WINDOW_END = time(16, 0)  # 11:00 AM ET
 AUTO_CLOSE_MINUTES_BEFORE_CLOSE = 30  # Close trades 20 min before market close
 
 # Global Strategy Parameters
@@ -93,50 +92,52 @@ INSTRUMENTS = {
         "symbol": "GBPUSD",
         "window_start": time(3, 0),  # 3:00 AM NY
         "window_end": time(4, 0),  # 4:00 AM NY
-        "min_stop_distance": 15,  # in pips
-        "buffer_points": 5,  # buffer for SL
-        "default_lot_size": 17.0,  # Default lot size
-        "max_lot_size": 32.0,  # Maximum lot size
-        "max_broker_lot_size": 52.0,
-        "fvg_min_size": 5,  # Reduce from 5 to 3 pips for more detection
-        "point_value": 0.0001,  # Value of 1 pip
+        "min_stop_distance": 30,  # in pips
+        "buffer_points": 15,  # buffer for SL
+        "default_lot_size": 50.0,  # Default lot size
+        "max_lot_size": 1000.0,  # Maximum lot size
+        "max_broker_lot_size": 1000.0,
+        "fvg_min_size": 3,  # Reduce from 5 to 3 pips for more detection
+        "point_value": 0.1,  # Value of 1 pip
         "description": "British Pound vs US Dollar",
         "trades_on_weekend": False,  # Doesn't trade on weekends
-        "max_trades_per_day": 2,  # Instrument-specific setting
+        "max_trades_per_day": 10,  # Instrument-specific setting
         "max_concurrent_trades": 1  # Instrument-specific setting
     },
     "AUDUSD": {
         "symbol": "AUDUSD",
         "windows": [  # Multiple time windows
-            {"start": time(3, 0), "end": time(4, 0)},  # 3:00-4:00 AM NY
-            {"start": time(19, 0), "end": time(22, 0)}  # 7:00-8:00 PM NY
+            {"start": time(3, 45), "end": time(5, 0)},  # 3:00-4:00 AM NY
+            {"start": time(19, 0), "end": time(20, 0)}  # 7:00-8:00 PM NY
         ],
-        "min_stop_distance": 10,  # in pips
-        "buffer_points": 5,  # buffer for SL
-        "default_lot_size": 15.0,  # Default lot size
-        "max_lot_size": 21.0,  # Maximum lot size
-        "max_broker_lot_size": 30.0,
-        "fvg_min_size": 2,  # Minimum FVG size in pips
-        "point_value": 0.0001,  # Value of 1 pip
+        "min_stop_distance": 25,  # in pips
+        "buffer_points": 15,  # buffer for SL
+        "default_lot_size": 50.0,  # Default lot size
+        "max_lot_size": 1000.0,  # Maximum lot size
+        "max_broker_lot_size": 1000.0,
+        "fvg_min_size": 3,  # Minimum FVG size in pips
+        "point_value": 1.0,  # Value of 1 pip
         "description": "Australian Dollar vs US Dollar",
         "trades_on_weekend": False,  # Doesn't trade on weekends
-        "max_trades_per_day": 2,  # Instrument-specific setting
+        "max_trades_per_day": 10,  # Instrument-specific setting
         "max_concurrent_trades": 1  # Instrument-specific setting
     },
     "XAUUSD": {
         "symbol": "XAUUSD",
-        "window_start": time(10, 0),  # 10:00 AM NY
-        "window_end": time(11, 0),  # 11:00 AM NY
+        "windows": [
+            {"start": time(3, 0), "end": time(3, 45)},  # London session
+            {"start": time(10, 10), "end": time(11, 0)}  # NY session
+        ],
         "min_stop_distance": 25,  # in pips
-        "buffer_points": 5,  # buffer for SL
-        "default_lot_size": 0.2,  # Default lot size
-        "max_lot_size": 0.3,  # # Maximum lot size
-        "max_broker_lot_size": 0.3,
+        "buffer_points": 15,  # buffer for SL
+        "default_lot_size": 10.5,  # Default lot size
+        "max_lot_size": 15.0,  # # Maximum lot size
+        "max_broker_lot_size": 20.0,
         "fvg_min_size": 10,  # Minimum FVG size in pips
-        "point_value": 0.01,  # Value of 1 pip for gold
+        "point_value": 1.0,  # Value of 1 pip for gold
         "description": "Gold vs US Dollar",
         "trades_on_weekend": False,  # Doesn't trade on weekends
-        "max_trades_per_day": 2,  # Instrument-specific setting
+        "max_trades_per_day": 10,  # Instrument-specific setting
         "max_concurrent_trades": 1  # Instrument-specific setting
     },
     "BTCUSD": {
@@ -144,7 +145,7 @@ INSTRUMENTS = {
         "windows": [  # Multiple time windows to capture different trading sessions
             {"start": time(2, 0), "end": time(3, 0)},  # 2:00-3:00 AM NY (Asian session)
             {"start": time(8, 0), "end": time(9, 0)},  # 8:00-9:00 AM NY (European session)
-            {"start": time(20, 0), "end": time(22, 0)}  # 2:00-3:00 PM NY (US session)
+            {"start": time(14, 0), "end": time(15, 0)}  # 2:00-3:00 PM NY (US session)
         ],
         "min_stop_distance": 15,  # Bitcoin requires wider stops due to volatility
         "buffer_points": 10,  # Buffer for SL

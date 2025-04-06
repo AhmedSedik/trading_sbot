@@ -276,11 +276,27 @@ class BacktestEngine:
         if state['current_position']:
             self._manage_position(row, current_time_ny, state)
 
-            # Add this code to force close at 15:45 NY time
-            # Check for end-of-day closure at 15:45 NY time
-            if current_time_ny.hour == 15 and current_time_ny.minute == 45:
-                self.logger.info(f"End of day (15:45 NY) - Closing any open positions")
-                self._close_position(row, state, row['close'], 'end_of_day')
+            # Check if we need to handle an open position first
+            if state['current_position']:
+                self._manage_position(row, current_time_ny, state)
+
+                # Add end-of-day auto-closure based on AUTO_CLOSE_MINUTES_BEFORE_CLOSE
+                from silver_bullet_bot.config import NY_SESSION_END, AUTO_CLOSE_MINUTES_BEFORE_CLOSE
+
+                # Calculate auto-close time
+                auto_close_hour = NY_SESSION_END.hour
+                auto_close_minute = NY_SESSION_END.minute - AUTO_CLOSE_MINUTES_BEFORE_CLOSE
+
+                # Adjust for negative minutes
+                if auto_close_minute < 0:
+                    auto_close_hour -= 1
+                    auto_close_minute += 60
+
+                # Check for auto-close time
+                if current_time_ny.hour == auto_close_hour and current_time_ny.minute == auto_close_minute:
+                    self.logger.info(
+                        f"Auto-close {AUTO_CLOSE_MINUTES_BEFORE_CLOSE} minutes before market close - Closing any open positions")
+                    self._close_position(row, state, row['close'], 'auto_close_before_market_end')
 
         # Check for trading window
         in_trading_window = self._is_in_trading_window(current_time_ny, config)
@@ -470,15 +486,39 @@ class BacktestEngine:
 
     def _is_in_trading_window(self, current_time_ny, config):
         """Check if current time is in trading window for this instrument"""
+        # Get instrument name for logging
+        instrument_name = config.get('symbol', 'Unknown')
+
         # Check if weekend trading is allowed
         if not config.get('trades_on_weekend', False) and current_time_ny.weekday() >= 5:
+            if current_time_ny.hour == 0 and current_time_ny.minute == 0:
+                self.logger.info(f"{instrument_name}: Weekend - no trading")
             return False
 
-        # Check if within NY trading hours
-        if not is_ny_trading_time(current_time_ny):
-            return False
+        # Check if within NY trading hours - add more detailed info
+
+        # Log window settings at the start of each hour
+        if current_time_ny.minute == 0 and current_time_ny.second < 5:
+            self.logger.info(f"Window check for {instrument_name} at {current_time_ny.strftime('%H:%M:%S')} NY")
+
+            # Show the actual window configuration
+            if 'windows' in config:
+                self.logger.info(f"{instrument_name} has multiple windows defined:")
+                for i, window in enumerate(config['windows']):
+                    self.logger.info(
+                        f"  Window {i + 1}: {window['start'].strftime('%H:%M')} - {window['end'].strftime('%H:%M')} NY")
+            else:
+                window_start = config.get('window_start')
+                window_end = config.get('window_end')
+                if window_start and window_end:
+                    self.logger.info(
+                        f"{instrument_name} window: {window_start.strftime('%H:%M')} - {window_end.strftime('%H:%M')} NY")
+                else:
+                    self.logger.info(f"{instrument_name} has NO defined window times - check configuration")
 
         # Check if within instrument-specific window(s)
+        is_in_window = False
+
         if 'windows' in config:
             # Multiple windows case
             for window in config['windows']:
@@ -486,18 +526,32 @@ class BacktestEngine:
                 window_end = window['end']
 
                 if window_start <= current_time_ny.time() <= window_end:
-                    return True
-            return False
+                    # Log when we're IN a window (every 15 minutes)
+                    if current_time_ny.minute % 15 == 0 and current_time_ny.second < 5:
+                        self.logger.info(
+                            f"{instrument_name} IN TRADING WINDOW at {current_time_ny.strftime('%H:%M:%S')} NY")
+                    is_in_window = True
+                    break
         else:
             # Single window case
             window_start = config.get('window_start')
             window_end = config.get('window_end')
 
             if window_start and window_end:
-                return window_start <= current_time_ny.time() <= window_end
+                if window_start <= current_time_ny.time() <= window_end:
+                    # Log when we're IN a window (every 15 minutes)
+                    if current_time_ny.minute % 15 == 0 and current_time_ny.second < 5:
+                        self.logger.info(
+                            f"{instrument_name} IN TRADING WINDOW at {current_time_ny.strftime('%H:%M:%S')} NY")
+                    is_in_window = True
             else:
                 # Use default Silver Bullet window
-                return is_silver_bullet_window(current_time_ny)
+                is_in_window = is_silver_bullet_window(current_time_ny)
+                if is_in_window and current_time_ny.minute % 15 == 0 and current_time_ny.second < 5:
+                    self.logger.info(
+                        f"{instrument_name} IN DEFAULT SILVER BULLET WINDOW at {current_time_ny.strftime('%H:%M:%S')} NY")
+
+        return is_in_window
 
     def _has_traded_today(self, current_date, state):
         date_str = str(current_date)

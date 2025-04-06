@@ -794,21 +794,45 @@ class SilverBulletStrategy:
         # Convert to NY time
         current_time_ny = convert_mt5_to_ny(current_time_mt5)
 
-        # Time-based exit (e.g., 10:35 AM NY time)
-        exit_time = time(10, 35)  # 10:35 AM
+        # Calculate auto-close time based on market close time
+        from silver_bullet_bot.config import NY_SESSION_END, AUTO_CLOSE_MINUTES_BEFORE_CLOSE
 
-        if current_time_ny.time() >= exit_time:
+        # Create auto-close time by subtracting minutes from market close
+        auto_close_hour = NY_SESSION_END.hour
+        auto_close_minute = NY_SESSION_END.minute - AUTO_CLOSE_MINUTES_BEFORE_CLOSE
+
+        # Adjust for negative minutes
+        if auto_close_minute < 0:
+            auto_close_hour -= 1
+            auto_close_minute += 60
+
+        auto_close_time = time(auto_close_hour, auto_close_minute)
+
+        # Check if it's time for market close auto-exit
+        if current_time_ny.time() >= auto_close_time:
             self.logger.info(
-                f"[{current_time_ny.strftime('%H:%M:%S')} NY] Time-based exit triggered for {self.instrument_name}")
+                f"[{current_time_ny.strftime('%H:%M:%S')} NY] Auto-close exit triggered for {self.instrument_name} ({AUTO_CLOSE_MINUTES_BEFORE_CLOSE} minutes before market close)")
             return True
 
-        # Log time remaining until exit
-        minutes_until_exit = ((exit_time.hour - current_time_ny.time().hour) * 60 +
-                              (exit_time.minute - current_time_ny.time().minute))
+        # You can also keep the original Silver Bullet time-based exit (10:35 AM NY time)
+        sb_exit_time = time(10, 35)  # 10:35 AM
+
+        if current_time_ny.time() >= sb_exit_time:
+            self.logger.info(
+                f"[{current_time_ny.strftime('%H:%M:%S')} NY] Silver Bullet time-based exit triggered for {self.instrument_name}")
+            return True
+
+        # Log time remaining until exit (for debugging purposes)
+        minutes_until_exit = min(
+            ((sb_exit_time.hour - current_time_ny.time().hour) * 60 + (
+                        sb_exit_time.minute - current_time_ny.time().minute)),
+            ((auto_close_time.hour - current_time_ny.time().hour) * 60 + (
+                        auto_close_time.minute - current_time_ny.time().minute))
+        )
 
         if minutes_until_exit > 0 and minutes_until_exit % 5 == 0:  # Log every 5 minutes
             self.logger.debug(
-                f"[{current_time_ny.strftime('%H:%M:%S')} NY] {minutes_until_exit} minutes until time-based exit")
+                f"[{current_time_ny.strftime('%H:%M:%S')} NY] {minutes_until_exit} minutes until earliest time-based exit")
 
         return False
 
