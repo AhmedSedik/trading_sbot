@@ -222,32 +222,59 @@ class ReportGenerator:
         # Create display columns for HTML rendering (as strings)
         # This is the key change - create separate string columns for display
         if 'status' in df.columns:
-            # Create display columns for both closed and open trades
-            if 'exit_time' in df.columns:
-                # Initialize with string versions of the data
-                df['exit_time_str'] = df['exit_time'].astype(str)
-                # For open trades, set to "Pending"
-                df.loc[df['status'] == 'open', 'exit_time_str'] = "Pending"
+            closed_mask = df['status'] == 'closed'
+            self.logger.info(f"closed_mask: {closed_mask}")
 
-            if 'exit_price' in df.columns:
-                # For display, format prices with 5 decimal places for closed trades
-                df['exit_price_str'] = df['exit_price'].apply(
-                    lambda x: f"{x:.5f}" if pd.notnull(x) else "")
-                # For open trades, set to "Pending"
-                df.loc[df['status'] == 'open', 'exit_price_str'] = "Pending"
+            # Check for closed trades with missing exit data
+            if closed_mask.any():
+                # Check for missing exit times
+                if 'exit_time' in df.columns:
+                    missing_exit_time = df['exit_time'].isna() & closed_mask
+                    if missing_exit_time.any():
+                        self.logger.warning(f"Found {missing_exit_time.sum()} closed trades with missing exit times")
+                        # For trades with missing exit times, use the entry time + 1 day as a fallback
+                        df.loc[missing_exit_time, 'exit_time'] = df.loc[missing_exit_time, 'entry_time'] + pd.Timedelta(
+                            days=1)
 
-            if 'exit_reason' in df.columns:
-                # Copy exit reason to string column
-                df['exit_reason_str'] = df['exit_reason'].astype(str)
-                # For open trades, set to "Pending"
-                df.loc[df['status'] == 'open', 'exit_reason_str'] = "Pending"
+                # Check for missing exit prices
+                if 'exit_price' in df.columns:
+                    missing_exit_price = df['exit_price'].isna() & closed_mask
+                    if missing_exit_price.any():
+                        self.logger.warning(f"Found {missing_exit_price.sum()} closed trades with missing exit prices")
+                        # For trades with missing exit prices, use entry price as a fallback (0 profit)
+                        df.loc[missing_exit_price, 'exit_price'] = df.loc[missing_exit_price, 'entry_price']
 
-            if 'pnl' in df.columns:
-                # Format PnL with 2 decimal places for closed trades
-                df['pnl_str'] = df['pnl'].apply(
-                    lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-                # For open trades, set to "Pending"
-                df.loc[df['status'] == 'open', 'pnl_str'] = "Pending"
+                # Check for missing exit reasons
+                if 'exit_reason' in df.columns:
+                    missing_exit_reason = df['exit_reason'].isna() & closed_mask
+                    if missing_exit_reason.any():
+                        self.logger.warning(
+                            f"Found {missing_exit_reason.sum()} closed trades with missing exit reasons")
+                        df.loc[missing_exit_reason, 'exit_reason'] = 'unknown_exit'
+
+                # Check for missing PnL values
+                if 'pnl' in df.columns:
+                    missing_pnl = df['pnl'].isna() & closed_mask
+                    if missing_pnl.any():
+                        self.logger.warning(f"Found {missing_pnl.sum()} closed trades with missing PnL values")
+                        # Recalculate PnL for these trades
+                        for idx in df.index[missing_pnl]:
+                            trade = df.loc[idx]
+                            direction = trade['direction']
+                            entry_price = trade['entry_price']
+                            exit_price = trade['exit_price']
+
+                            if pd.notna(entry_price) and pd.notna(exit_price):
+                                point_value = 1.0  # Default fallback point value
+                                lot_size = trade.get('lot_size', 1.0)
+
+                                if direction == 'buy':
+                                    profit_points = exit_price - entry_price
+                                else:
+                                    profit_points = entry_price - exit_price
+
+                                pnl = profit_points * point_value * lot_size
+                                df.loc[idx, 'pnl'] = pnl
 
             if 'r_multiple' in df.columns:
                 # Format R-multiples with 2 decimal places for closed trades

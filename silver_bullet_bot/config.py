@@ -32,7 +32,7 @@ CLOSE_POSITIONS_ON_MAX_DRAWDOWN = True  # Whether to close all positions when ma
 
 # NY Trading Session Times
 NY_SESSION_START = time(9, 30)  # 9:30 AM EDT
-NY_SESSION_END = time(4, 0)  # 4:00 PM EDT
+NY_SESSION_END = time(16, 0)  # 4:00 PM EDT
 
 # Default Silver Bullet Window
 SILVER_BULLET_WINDOW_START = time(10, 0)  # 10:00 AM ET
@@ -59,11 +59,11 @@ INSTRUMENTS = {
         "window_end": time(11, 00),  # 11:00 AM NY
         "min_stop_distance": 10,  # in points
         "buffer_points": 5,  # buffer for SL
-        "default_lot_size": 50.0,  # Default lot size
-        "max_lot_size": 1000.0,  # Maximum lot size
-        "max_broker_lot_size": 1000.0,
+        "default_lot_size": 30.0,  # Default lot size
+        "max_lot_size": 50.0,  # Maximum lot size
+        "max_broker_lot_size": 100.0,
         "fvg_min_size": 10,  # Minimum FVG size in points
-        "point_value": 5.0,  # Value of 1 point
+        "point_value": 1.0,  # Value of 1 point
         "description": "NASDAQ 100 Index",
         "trades_on_weekend": False,  # Doesn't trade on weekends
         "max_trades_per_day": 10,  # Instrument-specific setting
