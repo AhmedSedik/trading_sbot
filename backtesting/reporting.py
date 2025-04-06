@@ -181,19 +181,7 @@ class ReportGenerator:
             return generated_files
 
     def _prepare_trades_dataframe(self, backtest_result):
-        """
-        Prepare trades dataframe for reporting
-
-        Parameters:
-        -----------
-        backtest_result : dict
-            Backtest results
-
-        Returns:
-        --------
-        pd.DataFrame
-            Dataframe with trade information
-        """
+        """Prepare trades dataframe for reporting"""
         if 'trades' not in backtest_result or not backtest_result['trades']:
             self.logger.warning("No trades found in backtest results")
             return pd.DataFrame()
@@ -212,12 +200,16 @@ class ReportGenerator:
                 except Exception as e:
                     self.logger.warning(f"Error converting {col} to datetime: {e}")
 
-        # Calculate trade duration
-        if 'entry_time' in df.columns and 'exit_time' in df.columns:
+        # Calculate trade duration for closed trades
+        if 'entry_time' in df.columns and 'exit_time' in df.columns and 'status' in df.columns:
             try:
-                df['duration'] = df['exit_time'] - df['entry_time']
-                # Convert timedelta to minutes
-                df['duration_minutes'] = df['duration'].dt.total_seconds() / 60
+                # Only calculate for closed trades
+                closed_mask = df['status'] == 'closed'
+                if closed_mask.any():
+                    df.loc[closed_mask, 'duration'] = df.loc[closed_mask, 'exit_time'] - df.loc[
+                        closed_mask, 'entry_time']
+                    # Convert timedelta to minutes
+                    df.loc[closed_mask, 'duration_minutes'] = df.loc[closed_mask, 'duration'].dt.total_seconds() / 60
             except Exception as e:
                 self.logger.warning(f"Error calculating trade duration: {e}")
 
@@ -226,6 +218,43 @@ class ReportGenerator:
             df['date'] = df['entry_time'].dt.date
             df['day_of_week'] = df['entry_time'].dt.day_name()
             df['hour'] = df['entry_time'].dt.hour
+
+        # Create display columns for HTML rendering (as strings)
+        # This is the key change - create separate string columns for display
+        if 'status' in df.columns:
+            # Create display columns for both closed and open trades
+            if 'exit_time' in df.columns:
+                # Initialize with string versions of the data
+                df['exit_time_str'] = df['exit_time'].astype(str)
+                # For open trades, set to "Pending"
+                df.loc[df['status'] == 'open', 'exit_time_str'] = "Pending"
+
+            if 'exit_price' in df.columns:
+                # For display, format prices with 5 decimal places for closed trades
+                df['exit_price_str'] = df['exit_price'].apply(
+                    lambda x: f"{x:.5f}" if pd.notnull(x) else "")
+                # For open trades, set to "Pending"
+                df.loc[df['status'] == 'open', 'exit_price_str'] = "Pending"
+
+            if 'exit_reason' in df.columns:
+                # Copy exit reason to string column
+                df['exit_reason_str'] = df['exit_reason'].astype(str)
+                # For open trades, set to "Pending"
+                df.loc[df['status'] == 'open', 'exit_reason_str'] = "Pending"
+
+            if 'pnl' in df.columns:
+                # Format PnL with 2 decimal places for closed trades
+                df['pnl_str'] = df['pnl'].apply(
+                    lambda x: f"{x:.2f}" if pd.notnull(x) else "")
+                # For open trades, set to "Pending"
+                df.loc[df['status'] == 'open', 'pnl_str'] = "Pending"
+
+            if 'r_multiple' in df.columns:
+                # Format R-multiples with 2 decimal places for closed trades
+                df['r_multiple_str'] = df['r_multiple'].apply(
+                    lambda x: f"{x:.2f}" if pd.notnull(x) else "")
+                # For open trades, set to "Pending"
+                df.loc[df['status'] == 'open', 'r_multiple_str'] = "Pending"
 
         return df
 
@@ -311,28 +340,28 @@ class ReportGenerator:
         return pd.DataFrame()
 
     def _prepare_monthly_stats(self, trades_df):
-        """
-        Prepare monthly statistics dataframe
-
-        Parameters:
-        -----------
-        trades_df : pd.DataFrame
-            Dataframe with trade information
-
-        Returns:
-        --------
-        pd.DataFrame
-            Dataframe with monthly statistics
-        """
+        """Prepare monthly statistics dataframe"""
         if trades_df.empty:
             return pd.DataFrame()
 
         try:
+            # Only use closed trades for statistics
+            closed_trades = trades_df[trades_df['status'] == 'closed'].copy()
+
+            if closed_trades.empty:
+                return pd.DataFrame()
+
             # Add month and year columns
-            trades_df['year_month'] = trades_df['entry_time'].dt.to_period('M')
+            if 'entry_time' in closed_trades.columns:
+                # First ensure entry_time is timezone-naive by converting to datetime64[ns]
+                closed_trades['entry_time_naive'] = closed_trades['entry_time'].astype('datetime64[ns]')
+                # Then create the period
+                closed_trades['year_month'] = closed_trades['entry_time_naive'].dt.to_period('M')
+                # Drop the temporary column
+                closed_trades = closed_trades.drop(columns=['entry_time_naive'])
 
             # Group by year-month
-            monthly_df = trades_df.groupby('year_month').agg({
+            monthly_df = closed_trades.groupby('year_month').agg({
                 'pnl': ['sum', 'count'],
                 'r_multiple': ['mean', 'sum'],
             })
@@ -349,7 +378,7 @@ class ReportGenerator:
             })
 
             # Count winning trades
-            wins = trades_df[trades_df['pnl'] > 0].groupby('year_month').size()
+            wins = closed_trades[closed_trades['pnl'] > 0].groupby('year_month').size()
             monthly_df['wins'] = wins
             monthly_df['wins'] = monthly_df['wins'].fillna(0)
 
@@ -441,6 +470,7 @@ class ReportGenerator:
                 )
             except Exception as chart_error:
                 self.logger.error(f"Error generating chart images: {str(chart_error)}")
+                self.logger.error(traceback.format_exc())
                 chart_paths = {}
 
             # Prepare template data
@@ -469,21 +499,92 @@ class ReportGenerator:
                 'chart_paths': chart_paths,
             }
 
+            # Before rendering the trade table, prepare a display version with the display columns
+            display_df = trades_df.copy()
+
+            # For open trades, create display versions of columns
+            if 'status' in display_df.columns:
+                open_mask = display_df['status'] == 'open'
+
+                # Handle exit_time display for open trades
+                if 'exit_time' in display_df.columns:
+                    # Create a string version of exit_time
+                    display_df['exit_time_display'] = display_df['exit_time'].astype(str)
+                    # Set "Pending" for open trades
+                    display_df.loc[open_mask, 'exit_time_display'] = "Pending"
+                    # Replace the original column
+                    display_df['exit_time'] = display_df['exit_time_display']
+                    display_df = display_df.drop(columns=['exit_time_display'])
+
+                # Handle exit_price display
+                if 'exit_price' in display_df.columns:
+                    # Convert to string to avoid type issues
+                    display_df['exit_price_display'] = display_df['exit_price'].astype(str)
+                    # Set "Pending" for open trades
+                    display_df.loc[open_mask, 'exit_price_display'] = "Pending"
+                    # Replace the original column
+                    display_df['exit_price'] = display_df['exit_price_display']
+                    display_df = display_df.drop(columns=['exit_price_display'])
+
+                # Handle exit_reason display
+                if 'exit_reason' in display_df.columns:
+                    # Convert to string to avoid type issues
+                    display_df['exit_reason_display'] = display_df['exit_reason'].astype(str)
+                    # Set "Pending" for open trades
+                    display_df.loc[open_mask, 'exit_reason_display'] = "Pending"
+                    # Replace the original column
+                    display_df['exit_reason'] = display_df['exit_reason_display']
+                    display_df = display_df.drop(columns=['exit_reason_display'])
+
+                # Handle pnl display
+                if 'pnl' in display_df.columns:
+                    # Convert to string to avoid type issues
+                    display_df['pnl_display'] = display_df['pnl'].astype(str)
+                    # Set "Pending" for open trades
+                    display_df.loc[open_mask, 'pnl_display'] = "Pending"
+                    # Replace the original column
+                    display_df['pnl'] = display_df['pnl_display']
+                    display_df = display_df.drop(columns=['pnl_display'])
+
+                # Handle r_multiple display
+                if 'r_multiple' in display_df.columns:
+                    # Convert to string to avoid type issues
+                    display_df['r_multiple_display'] = display_df['r_multiple'].astype(str)
+                    # Set "Pending" for open trades
+                    display_df.loc[open_mask, 'r_multiple_display'] = "Pending"
+                    # Replace the original column
+                    display_df['r_multiple'] = display_df['r_multiple_display']
+                    display_df = display_df.drop(columns=['r_multiple_display'])
+
             # Safely generate HTML tables with error handling
             try:
                 # Convert trades dataframe to HTML with limited rows if very large
-                if len(trades_df) > 1000:
+                if len(display_df) > 1000:
                     self.logger.warning(
-                        f"Large trade dataframe detected ({len(trades_df)} rows). Limiting to 1000 rows.")
-                    template_data['trades_table'] = trades_df.head(1000).to_html(classes='table table-striped',
-                                                                                 index=False)
+                        f"Large trade dataframe detected ({len(display_df)} rows). Limiting to 1000 rows.")
+                    template_data['trades_table'] = display_df.head(1000).to_html(
+                        classes='table table-striped table-bordered',
+                        index=False,
+                        na_rep="--"
+                    )
                 else:
-                    template_data['trades_table'] = trades_df.to_html(classes='table table-striped', index=False)
+                    template_data['trades_table'] = display_df.to_html(
+                        classes='table table-striped table-bordered',
+                        index=False,
+                        na_rep="--"
+                    )
 
                 # Daily stats table
-                template_data['daily_stats_table'] = daily_stats.to_html(classes='table table-striped')
+                if not daily_stats.empty:
+                    template_data['daily_stats_table'] = daily_stats.to_html(
+                        classes='table table-striped table-bordered'
+                    )
+                else:
+                    template_data['daily_stats_table'] = "<p>No daily statistics available</p>"
+
             except Exception as table_error:
                 self.logger.error(f"Error generating HTML tables: {str(table_error)}")
+                self.logger.error(traceback.format_exc())
                 template_data['trades_table'] = "<p>Error generating trades table</p>"
                 template_data['daily_stats_table'] = "<p>Error generating daily stats table</p>"
 
@@ -501,6 +602,7 @@ class ReportGenerator:
                 return html_file
             except Exception as template_error:
                 self.logger.error(f"Error generating HTML from template: {str(template_error)}")
+                self.logger.error(traceback.format_exc())
 
                 # Try a fallback simple HTML report
                 try:
@@ -543,6 +645,7 @@ class ReportGenerator:
                     return fallback_file
                 except Exception as fallback_error:
                     self.logger.error(f"Failed to generate even a simple HTML report: {str(fallback_error)}")
+                    self.logger.error(traceback.format_exc())
                     return None
 
         except Exception as e:
@@ -580,6 +683,19 @@ class ReportGenerator:
             # Set plot style
             plt.style.use('seaborn-v0_8-darkgrid')
 
+            # Filter out open trades before any chart generation
+            # This prevents type errors when comparing strings with numbers
+            closed_trades_df = trades_df[
+                trades_df['status'] == 'closed'].copy() if 'status' in trades_df.columns else trades_df.copy()
+
+            # Ensure numeric columns are actually numeric
+            for col in ['pnl', 'r_multiple', 'exit_price']:
+                if col in closed_trades_df.columns:
+                    try:
+                        closed_trades_df[col] = pd.to_numeric(closed_trades_df[col], errors='coerce')
+                    except:
+                        self.logger.warning(f"Could not convert '{col}' to numeric type")
+
             # 1. Equity Curve
             if 'equity_curve' in backtest_result and backtest_result['equity_curve']:
                 equity_filename = f"{instrument}_equity_{timestamp}.png"
@@ -590,6 +706,7 @@ class ReportGenerator:
                 plt.title('Equity Curve')
                 plt.xlabel('Bars')
                 plt.ylabel('Equity')
+                plt.grid(True, alpha=0.3)
                 plt.tight_layout()
                 plt.savefig(equity_path)
                 plt.close()
@@ -607,6 +724,7 @@ class ReportGenerator:
                 plt.xlabel('Date')
                 plt.ylabel('Profit')
                 plt.xticks(rotation=45)
+                plt.grid(True, alpha=0.3)
                 plt.tight_layout()
                 plt.savefig(daily_profit_path)
                 plt.close()
@@ -623,6 +741,7 @@ class ReportGenerator:
                 plt.title('Cumulative Profit')
                 plt.xlabel('Date')
                 plt.ylabel('Profit')
+                plt.grid(True, alpha=0.3)
                 plt.tight_layout()
                 plt.savefig(cumulative_profit_path)
                 plt.close()
@@ -630,72 +749,142 @@ class ReportGenerator:
                 chart_paths['cumulative_profit'] = os.path.relpath(cumulative_profit_path, self.reports_dir)
 
             # 4. Win Rate by Day of Week
-            if not trades_df.empty and 'day_of_week' in trades_df.columns:
+            if not closed_trades_df.empty and 'day_of_week' in closed_trades_df.columns and 'pnl' in closed_trades_df.columns:
                 dow_win_rate_filename = f"{instrument}_dow_win_rate_{timestamp}.png"
                 dow_win_rate_path = os.path.join(charts_dir, dow_win_rate_filename)
 
-                dow_stats = trades_df.groupby('day_of_week').agg({
-                    'pnl': 'count',
-                    'r_multiple': 'mean'
-                })
+                try:
+                    # Ensure we have sufficient data
+                    if len(closed_trades_df) >= 3:  # Minimum trades for meaningful grouping
+                        # Group by day of week
+                        dow_stats = closed_trades_df.groupby('day_of_week').agg({
+                            'pnl': 'count',
+                        }).rename(columns={'pnl': 'trades'})
 
-                # Count winning trades by day of week
-                wins = trades_df[trades_df['pnl'] > 0].groupby('day_of_week').size()
-                dow_stats['wins'] = wins
-                dow_stats['wins'] = dow_stats['wins'].fillna(0)
+                        # Count winning trades by day of week
+                        winning_trades = closed_trades_df[closed_trades_df['pnl'] > 0]
+                        if not winning_trades.empty:
+                            wins = winning_trades.groupby('day_of_week').size()
+                            dow_stats['wins'] = wins
+                            dow_stats['wins'] = dow_stats['wins'].fillna(0)
 
-                # Calculate win rate
-                dow_stats['win_rate'] = dow_stats['wins'] / dow_stats['pnl']
+                            # Calculate win rate
+                            dow_stats['win_rate'] = dow_stats['wins'] / dow_stats['trades']
 
-                # Order days of week correctly
-                days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                dow_stats = dow_stats.reindex(days_order)
+                            # Order days of week correctly
+                            days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                            dow_stats = dow_stats.reindex([d for d in days_order if d in dow_stats.index])
 
-                plt.figure(figsize=(12, 6))
-                dow_stats['win_rate'].plot(kind='bar', color='skyblue')
-                plt.title('Win Rate by Day of Week')
-                plt.xlabel('Day of Week')
-                plt.ylabel('Win Rate')
-                plt.ylim(0, 1)
-                plt.tight_layout()
-                plt.savefig(dow_win_rate_path)
-                plt.close()
+                            # Only plot if we have data
+                            if not dow_stats.empty and 'win_rate' in dow_stats.columns:
+                                plt.figure(figsize=(12, 6))
+                                dow_stats['win_rate'].plot(kind='bar', color='skyblue')
+                                plt.title('Win Rate by Day of Week')
+                                plt.xlabel('Day of Week')
+                                plt.ylabel('Win Rate')
+                                plt.ylim(0, 1)
+                                plt.grid(True, alpha=0.3)
+                                plt.tight_layout()
+                                plt.savefig(dow_win_rate_path)
+                                plt.close()
 
-                chart_paths['dow_win_rate'] = os.path.relpath(dow_win_rate_path, self.reports_dir)
+                                chart_paths['dow_win_rate'] = os.path.relpath(dow_win_rate_path, self.reports_dir)
+                except Exception as e:
+                    self.logger.warning(f"Error generating day of week win rate chart: {str(e)}")
 
             # 5. P/L Distribution
-            if not trades_df.empty and 'pnl' in trades_df.columns:
+            if not closed_trades_df.empty and 'pnl' in closed_trades_df.columns:
                 pnl_dist_filename = f"{instrument}_pnl_dist_{timestamp}.png"
                 pnl_dist_path = os.path.join(charts_dir, pnl_dist_filename)
 
-                plt.figure(figsize=(12, 6))
-                sns.histplot(trades_df['pnl'], bins=20, kde=True)
-                plt.axvline(x=0, color='r', linestyle='--')
-                plt.title('P/L Distribution')
-                plt.xlabel('Profit/Loss')
-                plt.ylabel('Frequency')
-                plt.tight_layout()
-                plt.savefig(pnl_dist_path)
-                plt.close()
+                try:
+                    # Drop any NaN values that might have crept in
+                    valid_pnl = closed_trades_df['pnl'].dropna()
 
-                chart_paths['pnl_distribution'] = os.path.relpath(pnl_dist_path, self.reports_dir)
+                    if len(valid_pnl) >= 5:  # Minimum trades for meaningful histogram
+                        plt.figure(figsize=(12, 6))
+                        sns.histplot(valid_pnl, bins=min(20, len(valid_pnl) // 2), kde=True)
+                        plt.axvline(x=0, color='r', linestyle='--')
+                        plt.title('P/L Distribution')
+                        plt.xlabel('Profit/Loss')
+                        plt.ylabel('Frequency')
+                        plt.grid(True, alpha=0.3)
+                        plt.tight_layout()
+                        plt.savefig(pnl_dist_path)
+                        plt.close()
+
+                        chart_paths['pnl_distribution'] = os.path.relpath(pnl_dist_path, self.reports_dir)
+                except Exception as e:
+                    self.logger.warning(f"Error generating P/L distribution chart: {str(e)}")
 
             # 6. R-Multiple Distribution
-            if not trades_df.empty and 'r_multiple' in trades_df.columns:
+            if not closed_trades_df.empty and 'r_multiple' in closed_trades_df.columns:
                 r_dist_filename = f"{instrument}_r_dist_{timestamp}.png"
                 r_dist_path = os.path.join(charts_dir, r_dist_filename)
 
-                plt.figure(figsize=(12, 6))
-                sns.histplot(trades_df['r_multiple'], bins=20, kde=True)
-                plt.axvline(x=0, color='r', linestyle='--')
-                plt.title('R-Multiple Distribution')
-                plt.xlabel('R-Multiple')
-                plt.ylabel('Frequency')
-                plt.tight_layout()
-                plt.savefig(r_dist_path)
-                plt.close()
+                try:
+                    # Drop any NaN values
+                    valid_r = closed_trades_df['r_multiple'].dropna()
 
-                chart_paths['r_distribution'] = os.path.relpath(r_dist_path, self.reports_dir)
+                    if len(valid_r) >= 5:  # Minimum trades for meaningful histogram
+                        plt.figure(figsize=(12, 6))
+                        sns.histplot(valid_r, bins=min(20, len(valid_r) // 2), kde=True)
+                        plt.axvline(x=0, color='r', linestyle='--')
+                        plt.title('R-Multiple Distribution')
+                        plt.xlabel('R-Multiple')
+                        plt.ylabel('Frequency')
+                        plt.grid(True, alpha=0.3)
+                        plt.tight_layout()
+                        plt.savefig(r_dist_path)
+                        plt.close()
+
+                        chart_paths['r_distribution'] = os.path.relpath(r_dist_path, self.reports_dir)
+                except Exception as e:
+                    self.logger.warning(f"Error generating R-multiple distribution chart: {str(e)}")
+
+            # 7. Hourly Win Rate
+            if not closed_trades_df.empty and 'hour' in closed_trades_df.columns and 'pnl' in closed_trades_df.columns:
+                hourly_win_rate_filename = f"{instrument}_hourly_win_rate_{timestamp}.png"
+                hourly_win_rate_path = os.path.join(charts_dir, hourly_win_rate_filename)
+
+                try:
+                    # Ensure we have sufficient data
+                    if len(closed_trades_df) >= 5:  # Minimum trades for meaningful grouping
+                        # Group by hour
+                        hour_stats = closed_trades_df.groupby('hour').agg({
+                            'pnl': 'count',
+                        }).rename(columns={'pnl': 'trades'})
+
+                        # Count winning trades by hour
+                        winning_trades = closed_trades_df[closed_trades_df['pnl'] > 0]
+                        if not winning_trades.empty:
+                            wins = winning_trades.groupby('hour').size()
+                            hour_stats['wins'] = wins
+                            hour_stats['wins'] = hour_stats['wins'].fillna(0)
+
+                            # Calculate win rate
+                            hour_stats['win_rate'] = hour_stats['wins'] / hour_stats['trades']
+
+                            # Sort by hour
+                            hour_stats = hour_stats.sort_index()
+
+                            # Only plot if we have data
+                            if not hour_stats.empty and 'win_rate' in hour_stats.columns:
+                                plt.figure(figsize=(12, 6))
+                                hour_stats['win_rate'].plot(kind='bar', color='lightgreen')
+                                plt.title('Win Rate by Hour of Day')
+                                plt.xlabel('Hour')
+                                plt.ylabel('Win Rate')
+                                plt.ylim(0, 1)
+                                plt.grid(True, alpha=0.3)
+                                plt.xticks(rotation=45)
+                                plt.tight_layout()
+                                plt.savefig(hourly_win_rate_path)
+                                plt.close()
+
+                                chart_paths['hourly_win_rate'] = os.path.relpath(hourly_win_rate_path, self.reports_dir)
+                except Exception as e:
+                    self.logger.warning(f"Error generating hourly win rate chart: {str(e)}")
 
             return chart_paths
 
@@ -725,8 +914,43 @@ class ReportGenerator:
             <style>
                 body { padding: 20px; }
                 .chart-container { margin-bottom: 30px; }
-                .table-responsive { margin-bottom: 30px; }
+                .table-responsive { margin-bottom: 30px; overflow-x: auto; }
                 .metric-card { margin-bottom: 20px; }
+
+                /* IMPROVED TABLE STYLING */
+                table.table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 20px;
+                }
+
+                table.table th, 
+                table.table td {
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }
+
+                table.table th {
+                    background-color: #f2f2f2;
+                    position: sticky;
+                    top: 0;
+                }
+
+                table.table tr:nth-child(even) {
+                    background-color: #f9f9f9;
+                }
+
+                table.table tr:hover {
+                    background-color: #f1f1f1;
+                }
+
+                /* Add horizontal scrolling for wide tables */
+                .table-responsive {
+                    max-width: 100%;
+                    overflow-x: auto;
+                    -webkit-overflow-scrolling: touch;
+                }
             </style>
         </head>
         <body>
@@ -742,7 +966,7 @@ class ReportGenerator:
                         <div class="row">
                             <div class="col-md-6">
                                 <h4>Trade Statistics</h4>
-                                <table class="table">
+                                <table class="table table-bordered">
                                     <tr>
                                         <td>Instrument:</td>
                                         <td>{{ instrument }}</td>
@@ -767,7 +991,7 @@ class ReportGenerator:
                             </div>
                             <div class="col-md-6">
                                 <h4>Performance</h4>
-                                <table class="table">
+                                <table class="table table-bordered">
                                     <tr>
                                         <td>Initial Balance:</td>
                                         <td>${{ "%.2f" | format(summary.initial_balance) }}</td>

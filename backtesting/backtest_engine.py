@@ -184,8 +184,6 @@ class BacktestEngine:
 
             last_processed_time = current_time
 
-
-
             # Convert to NY time (for session checks)
             # Ensure it's in NY timezone
             if hasattr(current_time, 'tzinfo') and current_time.tzinfo is not None:
@@ -276,27 +274,23 @@ class BacktestEngine:
         if state['current_position']:
             self._manage_position(row, current_time_ny, state)
 
-            # Check if we need to handle an open position first
-            if state['current_position']:
-                self._manage_position(row, current_time_ny, state)
+            # Add end-of-day auto-closure based on AUTO_CLOSE_MINUTES_BEFORE_CLOSE
+            from silver_bullet_bot.config import NY_SESSION_END, AUTO_CLOSE_MINUTES_BEFORE_CLOSE
 
-                # Add end-of-day auto-closure based on AUTO_CLOSE_MINUTES_BEFORE_CLOSE
-                from silver_bullet_bot.config import NY_SESSION_END, AUTO_CLOSE_MINUTES_BEFORE_CLOSE
+            # Calculate auto-close time
+            auto_close_hour = NY_SESSION_END.hour
+            auto_close_minute = NY_SESSION_END.minute - AUTO_CLOSE_MINUTES_BEFORE_CLOSE
 
-                # Calculate auto-close time
-                auto_close_hour = NY_SESSION_END.hour
-                auto_close_minute = NY_SESSION_END.minute - AUTO_CLOSE_MINUTES_BEFORE_CLOSE
+            # Adjust for negative minutes
+            if auto_close_minute < 0:
+                auto_close_hour -= 1
+                auto_close_minute += 60
 
-                # Adjust for negative minutes
-                if auto_close_minute < 0:
-                    auto_close_hour -= 1
-                    auto_close_minute += 60
-
-                # Check for auto-close time
-                if current_time_ny.hour == auto_close_hour and current_time_ny.minute == auto_close_minute:
-                    self.logger.info(
-                        f"Auto-close {AUTO_CLOSE_MINUTES_BEFORE_CLOSE} minutes before market close - Closing any open positions")
-                    self._close_position(row, state, row['close'], 'auto_close_before_market_end')
+            # Check for auto-close time
+            if current_time_ny.hour == auto_close_hour and current_time_ny.minute == auto_close_minute:
+                self.logger.info(
+                    f"Auto-close {AUTO_CLOSE_MINUTES_BEFORE_CLOSE} minutes before market close - Closing any open positions")
+                self._close_position(row, state, row['close'], 'auto_close_before_market_end')
 
         # Check for trading window
         in_trading_window = self._is_in_trading_window(current_time_ny, config)
@@ -706,7 +700,7 @@ class BacktestEngine:
         # Check for time-based exit (10:35 AM NY time)
         from datetime import time as dt_time  # Add this at the top of the file
         # Then in the _manage_position method:
-        exit_time = dt_time(10, 35)  # 10:35 AM
+        exit_time = dt_time(10, 50)  # 10:35 AM
 
         if current_time_ny.time() >= exit_time:
             self._close_position(row, state, current_price, 'time_exit')
