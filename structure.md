@@ -15,3 +15,7 @@ trading_sbot/
 │   └── sessions/
 └── requirements.txt
 └── forex_data
+
+fvg ob sweep follow the backtest strategy if not found go to next
+better find the available and confirm setup
+

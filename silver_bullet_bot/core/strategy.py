@@ -649,7 +649,7 @@ class SilverBulletStrategy:
             else:
                 take_profit = entry_price - tp_distance
 
-        # Create the trade request
+        # Create the basic trade request
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": self.symbol,
@@ -662,8 +662,24 @@ class SilverBulletStrategy:
             "magic": 123456,  # Magic number to identify bot trades
             "comment": f"Silver Bullet {self.instrument_name}",
             "type_time": mt5.ORDER_TIME_GTC,  # Good Till Cancelled
-            "type_filling": mt5.ORDER_FILLING_FOK  # Fill or Kill
         }
+
+        # Get symbol filling modes
+        if symbol_info is not None:
+            # Check the filling mode flags
+            filling_modes = symbol_info.filling_mode
+            self.logger.info(f"Symbol {self.symbol} supported filling modes: {filling_modes}")
+
+            # Try to set the most appropriate filling mode
+            if filling_modes & mt5.SYMBOL_FILLING_FOK:
+                request["type_filling"] = mt5.ORDER_FILLING_FOK
+            elif filling_modes & mt5.SYMBOL_FILLING_IOC:
+                request["type_filling"] = mt5.ORDER_FILLING_IOC
+            else:
+                # If neither FOK nor IOC supported, don't specify (use default)
+                self.logger.info(f"Using default filling mode for {self.symbol}")
+        else:
+            self.logger.warning(f"Could not get symbol info for {self.symbol}")
 
         # Send the trade request
         result = mt5.order_send(request)

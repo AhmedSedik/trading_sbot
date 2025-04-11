@@ -343,7 +343,7 @@ def run_bot(broker_name=None):
                         f"[{ny_time.strftime('%H:%M:%S')} NY] Account balance: {account_info.balance}, equity: {account_info.equity}")
 
             # Sleep to avoid excessive CPU usage
-            time.sleep(1)
+            time.sleep(.1)
 
     except Exception as e:
         logger.error(f"Unexpected error: {e}")

@@ -22,7 +22,7 @@ TIMEFRAMES = {
 
 # Common Trading Parameters
 RISK_REWARD_RATIO = 2.0  # 1:2 risk-to-reward ratio
-MAX_RISK_PERCENT = 7.0  # Maximum risk per trade (percentage of account)
+MAX_RISK_PERCENT = 2.0  # Maximum risk per trade (percentage of account)
 
 # Drawdown Management
 MAX_DRAWDOWN_PERCENT = 5.0  # Maximum allowed drawdown (percentage of account)
@@ -55,19 +55,19 @@ INSTRUMENTS = {
     },
     "NAS100": {
         "symbol": "NAS100",
-        "window_start": time(10, 00),  # 10:00 AM NY
-        "window_end": time(11, 00),  # 11:00 AM NY
+        "window_start": time(9, 45),  # 10:00 AM NY
+        "window_end": time(10, 10),  # 11:00 AM NY
         "min_stop_distance": 10,  # in points
         "buffer_points": 5,  # buffer for SL
-        "default_lot_size": 30.0,  # Default lot size
-        "max_lot_size": 50.0,  # Maximum lot size
-        "max_broker_lot_size": 100.0,
+        "default_lot_size": 21.0,  # Default lot size
+        "max_lot_size": 32.0,  # Maximum lot size
+        "max_broker_lot_size": 80.0,
         "fvg_min_size": 10,  # Minimum FVG size in points
         "point_value": 1.0,  # Value of 1 point
         "description": "NASDAQ 100 Index",
         "trades_on_weekend": False,  # Doesn't trade on weekends
-        "max_trades_per_day": 10,  # Instrument-specific setting
-        "max_concurrent_trades": 5,  # Instrument-specific setting
+        "max_trades_per_day": 3,  # Instrument-specific setting
+        "max_concurrent_trades": 3,  # Instrument-specific setting
         "alias": ["NQ_100", "US100.cash", "USTECH100", "USTEC"]  # Add alias list for symbol variations
     },
     "NQ100": {
@@ -166,7 +166,7 @@ INSTRUMENTS = {
 
 
 # Specify which instruments to trade (you can enable/disable instruments here)
-ACTIVE_INSTRUMENTS = ["NAS100", "XAUUSD", "AUDUSD", "BTCUSD"]
+ACTIVE_INSTRUMENTS = ["NAS100",]
 
 # MT5 Broker Configurations
 # In config.py, add to MT5_BROKERS dictionary:
